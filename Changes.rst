@@ -1,3 +1,68 @@
+Changes for v4.1.0 (2025-06-28)
+===============================
+
+-  Add options to exclude the C14N Transform element in signatures
+   (#274)
+
+Changes for v4.0.5 (2025-06-02)
+===============================
+
+-  Use Python 3.9 compatible typing expression
+
+Changes for v4.0.4 (2025-06-01)
+===============================
+
+This release contains security fixes for two security advisories:
+
+-  Signature verification with HMAC is vulnerable to an algorithm
+   confusion attack
+   (https://github.com/XML-Security/signxml/security/advisories/GHSA-6vx8-pcwv-xhf4)
+
+-  Signature verification with HMAC is vulnerable to a timing attack
+   (https://github.com/XML-Security/signxml/security/advisories/GHSA-gmhf-gg8w-jw42)
+
+Changes for v4.0.3 (2024-11-23)
+===============================
+
+-  Fix issue with support for deprecated PyOpenSSL certificates
+
+-  Fully remove the ca_path parameter; add docs for signature location
+   pinning
+
+Changes for v4.0.2 (2024-09-10)
+===============================
+
+-  XAdES signing: remove duplicate timezone information from
+   ``SigningTime`` (#266)
+
+Changes for v4.0.1 (2024-08-30)
+===============================
+
+-  Verifier: Accept PyOpenSSL cert input, add deprecation warning
+
+Changes for v4.0.0 (2024-08-21)
+===============================
+
+-  Replace PyOpenSSL with Cryptography (#260)
+
+   -  This is a major infrastructure change that replaces core
+      certificate parsing, key processing, signature validation, and
+      certificate chain validation functions previously provided by
+      PyOpenSSL with those provided by Cryptography. Care was taken to
+      preserve the exisitng API, including exception types, but many
+      error messages raised in various error conditions have changed. If
+      you see unexpected behavior and you have reason to believe it is
+      incorrect, please file an issue.
+
+   -  Breaking change: the ca_path parameter, previously used to specify
+      CA certificate stores, is no longer supported. Use the ca_pem_file
+      parameter instead.
+
+-  Raise error when invalid certificate string is passed as input to
+   signer
+
+-  Fix public key matching for ECDSA (#245)
+
 Changes for v3.2.2 (2024-01-28)
 ===============================
 
