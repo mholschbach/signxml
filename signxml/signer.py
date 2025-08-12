@@ -2,12 +2,12 @@ from base64 import b64encode
 from dataclasses import dataclass, replace
 from typing import List, Optional, Union
 
+from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, rsa, utils
 from cryptography.hazmat.primitives.asymmetric.padding import MGF1, PSS, PKCS1v15
 from cryptography.hazmat.primitives.hmac import HMAC
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.hazmat.primitives.serialization import Encoding, load_pem_private_key
 from lxml.etree import Element, SubElement, _Element
-from OpenSSL.crypto import FILETYPE_PEM, X509, dump_certificate
 
 from .algorithms import (
     CanonicalizationMethod,
@@ -133,7 +133,7 @@ class XMLSigner(XMLSignatureProcessor):
         *,
         key: Optional[Union[str, bytes, rsa.RSAPrivateKey, dsa.DSAPrivateKey, ec.EllipticCurvePrivateKey]] = None,
         passphrase: Optional[bytes] = None,
-        cert: Optional[Union[str, List[str], List[X509]]] = None,
+        cert: Optional[Union[str, List[str], List[x509.Certificate]]] = None,
         reference_uri: Optional[Union[str, List[str], List[SignatureReference]]] = None,
         key_name: Optional[str] = None,
         key_info: Optional[_Element] = None,
@@ -141,6 +141,7 @@ class XMLSigner(XMLSignatureProcessor):
         always_add_key_value: bool = False,
         inclusive_ns_prefixes: Optional[List[str]] = None,
         signature_properties: Optional[Union[_Element, List[_Element]]] = None,
+        exclude_c14n_transform_element: bool = False,
     ) -> _Element:
         """
         Sign the data and return the root element of the resulting XML tree.
@@ -156,8 +157,8 @@ class XMLSigner(XMLSignatureProcessor):
         :param passphrase: Passphrase to use to decrypt the key, if any.
         :param cert:
             X.509 certificate to use for signing. This should be a string containing a PEM-formatted certificate, or an
-            array of strings or :class:`OpenSSL.crypto.X509` objects containing the certificate and a chain of
-            intermediate certificates.
+            array of strings or :class:`cryptography.x509.Certificate` objects containing the certificate and a chain
+            of intermediate certificates.
         :param reference_uri:
             Custom reference URI or list of reference URIs to incorporate into the signature. When ``method`` is set to
             ``detached`` or ``enveloped``, reference URIs are set to this value and only the referenced elements are
@@ -188,6 +189,11 @@ class XMLSigner(XMLSignatureProcessor):
         :param signature_properties:
             One or more Elements that are to be included in the SignatureProperies section when using the detached
             method.
+        :param exclude_c14n_transform_element:
+            When set to True, the c14n algorithm is not added to the signature's Transforms element. By default,
+            all transforms including canonicalization are added to the Transforms element, and in most cases this
+            is the correct approach. Only set this to True if you need to comply with a specification where the
+            c14n algorithm is fixed, and the specification forbids mentioning the algorithm.
 
         :returns:
             A :class:`lxml.etree._Element` object representing the root of the XML tree containing the signature and
@@ -206,9 +212,11 @@ class XMLSigner(XMLSignatureProcessor):
             if len(cert_chain) == 0:
                 raise InvalidInput("No PEM-encoded certificates found in string cert input data")
         else:
-            cert_chain = cert  # type: ignore
+            cert_chain = cert  # type:ignore[assignment]
+        
         if data is None and ( reference_uri is None or len(self.signature_annotators)==1):
             raise InvalidInput("When no data is provided at least a reference_uri and a signature_annotator must be provided.")
+
         signing_settings = SigningSettings(
             key=None,
             key_name=key_name,
@@ -254,6 +262,7 @@ class XMLSigner(XMLSignatureProcessor):
             references=references,
             c14n_inputs=c14n_inputs,
             inclusive_ns_prefixes=inclusive_ns_prefixes,
+            exclude_c14n_transform_element=exclude_c14n_transform_element,
         )
         # perfom xades post annotation if needed
         # TODO : clean Xades code to rely on the common annotator mechanism
@@ -265,7 +274,7 @@ class XMLSigner(XMLSignatureProcessor):
             signed_info_node, algorithm=self.c14n_alg, inclusive_ns_prefixes=inclusive_ns_prefixes
         )
         if self.sign_alg.name.startswith("HMAC_"):
-            signer = HMAC(key=key, algorithm=digest_algorithm_implementations[self.sign_alg]())  # type: ignore
+            signer = HMAC(key=key, algorithm=digest_algorithm_implementations[self.sign_alg]())  # type:ignore[arg-type]
             signer.update(signed_info_c14n)
             signature_value_node.text = b64encode(signer.finalize()).decode()
             sig_root.append(signature_value_node)
@@ -340,7 +349,7 @@ class XMLSigner(XMLSignatureProcessor):
                     if isinstance(cert, (str, bytes)):
                         x509_certificate.text = strip_pem_header(cert)
                     else:
-                        x509_certificate.text = strip_pem_header(dump_certificate(FILETYPE_PEM, cert))
+                        x509_certificate.text = strip_pem_header(cert.public_bytes(Encoding.PEM))
         else:
             sig_root.append(signing_settings.key_info)
 
@@ -431,22 +440,30 @@ class XMLSigner(XMLSignatureProcessor):
             references = [SignatureReference(URI="#object")]
         return doc_root, c14n_inputs, references
 
-    def _build_transforms_for_reference(self, *, transforms_node: _Element, reference: SignatureReference):
-        if reference.reference_construction_method == SignatureConstructionMethod.enveloped:
+    def _build_transforms_for_reference(
+        self, *, transforms_node: _Element, reference: SignatureReference, exclude_c14n_transform_element: bool = True
+    ):
+        assert reference.c14n_method is not None
+        if self.construction_method == SignatureConstructionMethod.enveloped:
             SubElement(transforms_node, ds_tag("Transform"), Algorithm=SignatureConstructionMethod.enveloped.value)
-            SubElement(transforms_node, ds_tag("Transform"), Algorithm=reference.c14n_method.value)  # type: ignore
+            if not exclude_c14n_transform_element:
+                SubElement(transforms_node, ds_tag("Transform"), Algorithm=reference.c14n_method.value)
         else:
-            c14n_xform = SubElement(
-                transforms_node, ds_tag("Transform"), Algorithm=reference.c14n_method.value  # type: ignore
-            )
+            if not exclude_c14n_transform_element:
+                c14n_xform = SubElement(
+                    transforms_node,
+                    ds_tag("Transform"),
+                    Algorithm=reference.c14n_method.value,
+                )
             if reference.inclusive_ns_prefixes:
                 SubElement(
                     c14n_xform, ec_tag("InclusiveNamespaces"), PrefixList=" ".join(reference.inclusive_ns_prefixes)
                 )
 
-    def _build_sig(self, sig_root, references, c14n_inputs, inclusive_ns_prefixes):
-        signed_info = Element( ds_tag("SignedInfo"), nsmap=self.namespaces)
-        sig_root.insert(0,signed_info)
+    def _build_sig(
+        self, sig_root, references, c14n_inputs, inclusive_ns_prefixes, exclude_c14n_transform_element=False
+    ):
+        signed_info = SubElement(sig_root, ds_tag("SignedInfo"), nsmap=self.namespaces)
         sig_c14n_method = SubElement(signed_info, ds_tag("CanonicalizationMethod"), Algorithm=self.c14n_alg.value)
         if inclusive_ns_prefixes:
             SubElement(sig_c14n_method, ec_tag("InclusiveNamespaces"), PrefixList=" ".join(inclusive_ns_prefixes))
@@ -459,7 +476,11 @@ class XMLSigner(XMLSignatureProcessor):
                 reference = replace(reference, inclusive_ns_prefixes=inclusive_ns_prefixes)
             reference_node = SubElement(signed_info, ds_tag("Reference"), URI=reference.URI)
             transforms = SubElement(reference_node, ds_tag("Transforms"))
-            self._build_transforms_for_reference(transforms_node=transforms, reference=reference)
+            self._build_transforms_for_reference(
+                transforms_node=transforms,
+                reference=reference,
+                exclude_c14n_transform_element=exclude_c14n_transform_element,
+            )
             SubElement(reference_node, ds_tag("DigestMethod"), Algorithm=self.digest_alg.value)
             digest_value = SubElement(reference_node, ds_tag("DigestValue"))
             payload_c14n = self._c14n(
