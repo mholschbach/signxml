@@ -57,11 +57,12 @@ class SignatureReference:
     declarations should be preserved when canonicalizing the reference value (**InclusiveNamespaces PrefixList**).
     """
 
-    reference_construction_method:SignatureConstructionMethod = SignatureConstructionMethod.enveloped 
+    reference_construction_method: SignatureConstructionMethod = SignatureConstructionMethod.enveloped
     """
     ``signxml.methods.enveloped``, ``signxml.methods.enveloping``, or ``signxml.methods.detached``. See
         :class:`SignatureConstructionMethod` for details.
     """
+
 
 class XMLSigner(XMLSignatureProcessor):
     """
@@ -129,7 +130,7 @@ class XMLSigner(XMLSignatureProcessor):
 
     def sign(
         self,
-        data = None,
+        data=None,
         *,
         key: Optional[Union[str, bytes, rsa.RSAPrivateKey, dsa.DSAPrivateKey, ec.EllipticCurvePrivateKey]] = None,
         passphrase: Optional[bytes] = None,
@@ -213,9 +214,11 @@ class XMLSigner(XMLSignatureProcessor):
                 raise InvalidInput("No PEM-encoded certificates found in string cert input data")
         else:
             cert_chain = cert  # type:ignore[assignment]
-        
-        if data is None and ( reference_uri is None or len(self.signature_annotators)==1):
-            raise InvalidInput("When no data is provided at least a reference_uri and a signature_annotator must be provided.")
+
+        if data is None and (reference_uri is None or len(self.signature_annotators) == 1):
+            raise InvalidInput(
+                "When no data is provided at least a reference_uri and a signature_annotator must be provided."
+            )
 
         signing_settings = SigningSettings(
             key=None,
@@ -237,18 +240,26 @@ class XMLSigner(XMLSignatureProcessor):
         if data is not None:
             doc_root, sig_root, placeholder_path, placeholder_index, placeholder_tail = self._initialize_sig_root(data)
         else:
-            doc_root, sig_root, placeholder_path, placeholder_index, placeholder_tail = None, Element(ds_tag("Signature"), nsmap=self.namespaces,Id="placeholder"), None, None, None
+            doc_root, sig_root, placeholder_path, placeholder_index, placeholder_tail = (
+                None,
+                Element(ds_tag("Signature"), nsmap=self.namespaces, Id="placeholder"),
+                None,
+                None,
+                None,
+            )
         # permit annotator to add content to the Signature node
         xades_post_annotation = None
-        for signature_annotator in self.signature_annotators :
-            if not signature_annotator.__name__ == "_build_xades_ds_object": # TODO change xades code to rely on new annotator approach
+        for signature_annotator in self.signature_annotators:
+            if (
+                not signature_annotator.__name__ == "_build_xades_ds_object"
+            ):  # TODO change xades code to rely on new annotator approach
                 signature_annotator(sig_root, signing_settings=signing_settings)
             else:
                 xades_post_annotation = signature_annotator
         # validate references only after annotations so that elements of the Signature node can be signed
         input_references = self._preprocess_reference_uri(reference_uri)
 
-        doc_root, c14n_inputs, references = self._unpack( data, doc_root, sig_root, input_references)
+        doc_root, c14n_inputs, references = self._unpack(data, doc_root, sig_root, input_references)
 
         if self.construction_method == SignatureConstructionMethod.detached and signature_properties is not None:
             references.append(SignatureReference(URI="#prop"))
@@ -266,9 +277,8 @@ class XMLSigner(XMLSignatureProcessor):
         )
         # perfom xades post annotation if needed
         # TODO : clean Xades code to rely on the common annotator mechanism
-        if xades_post_annotation: 
+        if xades_post_annotation:
             xades_post_annotation(sig_root, signing_settings=signing_settings)
-        
 
         signed_info_c14n = self._c14n(
             signed_info_node, algorithm=self.c14n_alg, inclusive_ns_prefixes=inclusive_ns_prefixes
@@ -309,9 +319,9 @@ class XMLSigner(XMLSignatureProcessor):
                 doc_root.append(c14n_input)
         if self.construction_method == SignatureConstructionMethod.enveloped:
             if placeholder_path is not None:
-                if not (parent :=  doc_root.find(placeholder_path)):
+                if not (parent := doc_root.find(placeholder_path)):
                     parent.text = parent.text.removesuffix(placeholder_tail)
-                    parent.insert(placeholder_index,sig_root)
+                    parent.insert(placeholder_index, sig_root)
             else:
                 doc_root.append(sig_root)
         if self.construction_method == SignatureConstructionMethod.detached and signature_properties is not None:
@@ -353,7 +363,7 @@ class XMLSigner(XMLSignatureProcessor):
         else:
             sig_root.append(signing_settings.key_info)
 
-    def _get_c14n_inputs_from_references(self, doc_root,sig_root, references: List[SignatureReference]):
+    def _get_c14n_inputs_from_references(self, doc_root, sig_root, references: List[SignatureReference]):
         c14n_inputs, new_references = [], []
         for reference in references:
             uri = reference.URI if reference.URI.startswith("#") else "#" + reference.URI
@@ -370,7 +380,7 @@ class XMLSigner(XMLSignatureProcessor):
         return c14n_inputs, new_references
 
     def _initialize_sig_root(self, data):
-        sig_root = Element(ds_tag("Signature"), nsmap=self.namespaces,Id="placeholder")
+        sig_root = Element(ds_tag("Signature"), nsmap=self.namespaces, Id="placeholder")
         placeholder_path = None
         placeholder_index = None
         placeholder_tail = None
@@ -380,7 +390,7 @@ class XMLSigner(XMLSignatureProcessor):
             doc_root = self.get_root(data)
             signature_placeholders = self._findall(doc_root, "Signature[@Id='placeholder']", xpath=".//")
             if len(signature_placeholders) == 0:
-                    doc_root.append(sig_root)
+                doc_root.append(sig_root)
             elif len(signature_placeholders) == 1:
                 sig_root = signature_placeholders[0]
                 placeholder_path = sig_root.getroottree().getelementpath(sig_root.getparent())
@@ -392,9 +402,9 @@ class XMLSigner(XMLSignatureProcessor):
             doc_root = self.get_root(data)
         elif self.construction_method == SignatureConstructionMethod.enveloping:
             doc_root = sig_root
-        
+
         return doc_root, sig_root, placeholder_path, placeholder_index, placeholder_tail
-        
+
     def _unpack(self, data, doc_root, sig_root, references: List[SignatureReference]):
         if self.construction_method == SignatureConstructionMethod.enveloped:
             if isinstance(data, (str, bytes)):
@@ -402,7 +412,7 @@ class XMLSigner(XMLSignatureProcessor):
             c14n_inputs = [doc_root]
             if references is not None:
                 # Only sign the referenced element(s)
-                c14n_inputs, references = self._get_c14n_inputs_from_references(doc_root,sig_root, references)
+                c14n_inputs, references = self._get_c14n_inputs_from_references(doc_root, sig_root, references)
 
             for c14n_input in c14n_inputs:
                 placeholders = self._findall(c14n_input, "Signature[@Id='placeholder']", xpath=".//")
@@ -488,8 +498,8 @@ class XMLSigner(XMLSignatureProcessor):
             )
             digest = self._get_digest(payload_c14n, algorithm=self.digest_alg)
             digest_value.text = b64encode(digest).decode()
-        signature_value = Element( ds_tag("SignatureValue"))
-        sig_root.insert(1,signature_value)
+        signature_value = Element(ds_tag("SignatureValue"))
+        sig_root.insert(1, signature_value)
         return signed_info, signature_value
 
     def _build_signature_properties(self, signature_properties):

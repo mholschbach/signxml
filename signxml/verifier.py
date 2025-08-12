@@ -119,7 +119,7 @@ class VerifyResult:
     signature_key: bytes
     "The cryptographic key that was used to verify the signature, in PEM format (for asymmetric keys) or raw secret bytes (for HMAC keys)"
 
-    reference_uri: Optional[str] 
+    reference_uri: Optional[str]
     "The signature element parsed as XML"
 
 
@@ -538,7 +538,11 @@ class XMLVerifier(XMLSignatureProcessor):
             msg = "Expected to find {} references, but found {}"
             raise InvalidSignature(msg.format(self.config.expect_references, len(verify_results)))
 
-        return verify_results if self.config.expect_references is True or self.config.expect_references > 1 else verify_results[0]
+        return (
+            verify_results
+            if self.config.expect_references is True or self.config.expect_references > 1
+            else verify_results[0]
+        )
 
     def _verify_reference(
         self,
@@ -579,7 +583,9 @@ class XMLVerifier(XMLSignatureProcessor):
             signature_key = signature_key_used
         else:
             signature_key = signature_key_used.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
-        return VerifyResult(payload_c14n, payload_c14n_xml, signature, signature_key=signature_key, reference_uri=reference.get("URI"))
+        return VerifyResult(
+            payload_c14n, payload_c14n_xml, signature, signature_key=signature_key, reference_uri=reference.get("URI")
+        )
 
     def validate_schema(self, signature):
         last_exception = None
